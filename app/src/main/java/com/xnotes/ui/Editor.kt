@@ -420,6 +420,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         override fun sizeOf(key: Page, value: ImageBitmap) = value.width * value.height * 4
     }
     private var pageThumbsVersion = -1
+    private var pageThumbsRotation = 0
     /** In-memory caches so reopening the backstage paints instantly (seed first, refresh after). */
     private val browseCache = java.util.concurrent.ConcurrentHashMap<String, List<BrowseEntry>>()
     private val rootNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -1550,7 +1551,10 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         view.externalStylusInput = { event -> hvPenInk?.consumeStylusEvent(event) == true }
         pad.onSurfaceLost = { controller.frontInk?.surfaceLost() }
         view.debugOverlay.frontHud = { controller.frontInk?.hud }
-        view.afterLayout = { refreshView() }
+        view.afterLayout = {
+            refreshPageThumbnailsForRotation()
+            refreshView()
+        }
         view.onScrollbarScrolled = { refreshView() }
         // The canvas starts at built-in defaults; push any non-default global View settings
         // (mode/rotation/scroll direction/scrollbar) into it before the first document lands.
@@ -2950,6 +2954,20 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
      */
     fun pageAspectRatio(page: Page): Float = (state.displayH(page) / state.displayW(page)).toFloat()
 
+    /** Screen rotation is runtime canvas state, independent of saved View-menu rotation. */
+    private fun refreshPageThumbnailsForRotation() {
+        val rotation = state.rotationDeg
+        if (pageThumbsRotation == rotation) return
+        pageThumbsRotation = rotation
+        synchronized(pageThumbs) {
+            pageThumbs.evictAll()
+            pageThumbsVersion = contentVersion
+        }
+        pdfThumbTick++
+        thumbnailVersion++
+        currentUri?.let { invalidateThumb(it) }
+    }
+
     /**
      * Renders a page to a thumbnail bitmap (paper + PDF/template background + items). [active] is
      * polled before the costly steps (PDF background, each item) so a render abandoned mid-flight —
@@ -3021,15 +3039,16 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     suspend fun pageThumbnail(page: Page, widthPx: Int): ImageBitmap? {
         val generation = thumbnailGeneration
         val version = contentVersion
+        val rotation = state.rotationDeg
         cachedPageThumbnail(page)?.let { return it }
         return withContext(Dispatchers.Default) {
             cachedPageThumbnail(page)?.let { return@withContext it }
             // Render in page space sized so the rotated result lands at [widthPx] wide.
             val renderW = (state.outerW(page) * (widthPx / state.displayW(page))).roundToInt().coerceAtLeast(1)
             val bmp = renderThumbnail(page, renderW, active = { isActive && isCurrentThumbnail(generation) })
-                ?.let { rotateForView(it) } ?: return@withContext null
+                ?.let { rotateForView(it, rotation) } ?: return@withContext null
             synchronized(pageThumbs) {
-                if (!isActive || !isCurrentThumbnail(generation) || version != contentVersion) {
+                if (!isActive || !isCurrentThumbnail(generation) || version != contentVersion || rotation != state.rotationDeg) {
                     bmp.recycle()
                     null
                 } else {
@@ -3039,9 +3058,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         }
     }
 
-    /** Rotate a page-space bitmap by the view rotation, for thumbnails that mirror the canvas. */
-    private fun rotateForView(bmp: android.graphics.Bitmap): android.graphics.Bitmap {
-        val deg = viewSettings.rotation
+    /** Rotate a page-space bitmap by the live canvas rotation, matching the displayed page. */
+    private fun rotateForView(bmp: android.graphics.Bitmap, deg: Int): android.graphics.Bitmap {
         if (deg == 0) return bmp
         val m = android.graphics.Matrix().apply { postRotate(deg.toFloat()) }
         return android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)

@@ -79,6 +79,9 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     /** The front buffer wet ink goes into, above [view] and transparent whenever no pen is down. */
     val pad = com.xnotes.gl.GlWetPad(appContext)
 
+    /** Hanvon draws the live preview; this canvas replays the returned samples into its GL ink path. */
+    private var hvPenInk: com.xnotes.platform.HvPenInkController? = null
+
     /**
      * The two surfaces, in order. They are siblings rather than one view because the canvas needs a
      * multisampled config and the front buffer cannot have one.
@@ -266,6 +269,13 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
         view.input = { interaction.onTouch(it) }
         view.genericMotion = { interaction.onGenericMotion(it) }
         view.hover = { interaction.onHover(it) }
+        hvPenInk = com.xnotes.platform.HvPenInkController(
+            view = view,
+            selection = { com.xnotes.platform.HvPenInkController.Selection(tool, configFor(tool), viewport.zoom) },
+            dispatch = { event -> view.input?.invoke(event) == true },
+            publishAfterRender = { action -> view.publishThen(action) },
+        )
+        view.externalStylusInput = { event -> hvPenInk?.consumeStylusEvent(event) == true }
         view.afterLayout = { applyInitialView() }
         view.onContextReady = { renderFailure = view.failure }
         pad.onSurfaceLost = { endFrontInk(); settleHeld() }
@@ -438,6 +448,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
         val marked = interaction.connecting
         tool = next
         interaction.tool = next
+        hvPenInk?.updateSelection()
         if (marked != interaction.connecting) publishOverlay()
     }
 
@@ -857,6 +868,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     fun armInkColor(color: Rgba) {
         inkColor = color
         restyleLabel { it.copy(rgba = color) }
+        hvPenInk?.updateSelection()
     }
 
     /** Arm swatch [index], the same way the paged toolbar picks its ink; an open label takes it too. */
@@ -865,11 +877,13 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
         activeColorIndex = index
         inkColor = toolbarColors[index]
         restyleLabel { it.copy(rgba = toolbarColors[index]) }
+        hvPenInk?.updateSelection()
         onToolStyleChanged?.invoke()
     }
 
     fun setToolConfig(forTool: Tool, config: ToolConfig) {
         toolConfigs[forTool] = config
+        hvPenInk?.updateSelection()
     }
 
     fun armShapeConfig(config: ShapeConfig) {
@@ -892,6 +906,7 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
 
     override fun updateToolConfig(tool: Tool, config: ToolConfig) {
         toolConfigs[tool] = config
+        hvPenInk?.updateSelection()
         onToolStyleChanged?.invoke()
     }
 
@@ -930,7 +945,10 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
     override fun recolorSwatch(index: Int, color: Rgba) {
         if (index !in toolbarColors.indices) return
         toolbarColors = toolbarColors.toMutableList().also { it[index] = color }
-        if (index == activeColorIndex) inkColor = color
+        if (index == activeColorIndex) {
+            inkColor = color
+            hvPenInk?.updateSelection()
+        }
         onSwatchRecolored?.invoke(index, color)
     }
 
@@ -951,6 +969,11 @@ class InfiniteEditor(context: Context) : ToolPopupHost, SelectionMenuHost, LongP
 
     /** How this bar is arranged, handed over by the host, which owns the settings file. */
     var toolbarLayout by mutableStateOf(com.xnotes.core.tools.ToolbarLayout.CANVAS_DEFAULT)
+
+    /** Keep the vendor preview off while stylus contact is over the floating dock. */
+    fun onToolbarStylusContact(active: Boolean) {
+        hvPenInk?.onToolbarStylusContact(active)
+    }
 
     /** Fired when a tool's style changed here, so the host can persist it. */
     var onToolStyleChanged: (() -> Unit)? = null

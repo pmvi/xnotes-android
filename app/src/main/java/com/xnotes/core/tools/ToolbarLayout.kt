@@ -194,10 +194,10 @@ data class ToolbarLayout(val sections: List<ToolbarSection>) {
         val DEFAULT: ToolbarLayout = of(
             listOf(ToolbarItem.PAGE_NAV),
             listOf(ToolbarItem.PEN),
+            listOf(ToolbarItem.UNDO, ToolbarItem.REDO),
             listOf(ToolbarItem.SELECT, ToolbarItem.LASSO, ToolbarItem.SCREENSHOT),
             listOf(ToolbarItem.WAND, ToolbarItem.SHAPE, ToolbarItem.RULER, ToolbarItem.TEXT, ToolbarItem.TEXT_BOX, ToolbarItem.MARKUP),
             listOf(ToolbarItem.IMAGE),
-            listOf(ToolbarItem.UNDO, ToolbarItem.REDO),
             listOf(ToolbarItem.ADD_PAGE, ToolbarItem.SIDEBAR, ToolbarItem.TITLE),
             listOf(ToolbarItem.STYLES, ToolbarItem.MARGINS, ToolbarItem.VIEW),
             listOf(ToolbarItem.FULLSCREEN),
@@ -206,15 +206,12 @@ data class ToolbarLayout(val sections: List<ToolbarSection>) {
         /** Mirrors the hardcoded canvas bar (see InfiniteToolbar.kt). */
         val CANVAS_DEFAULT: ToolbarLayout = of(
             listOf(ToolbarItem.HOME, ToolbarItem.TITLE),
-            listOf(
-                ToolbarItem.PEN, ToolbarItem.DASHED, ToolbarItem.CALLIGRAPHY, ToolbarItem.SPEED,
-                ToolbarItem.TAPER, ToolbarItem.HIGHLIGHTER, ToolbarItem.ERASER,
-            ),
+            listOf(ToolbarItem.PEN),
+            listOf(ToolbarItem.UNDO, ToolbarItem.REDO),
             listOf(ToolbarItem.PAN, ToolbarItem.SELECT, ToolbarItem.LASSO),
             listOf(ToolbarItem.WAND, ToolbarItem.SHAPE),
             listOf(ToolbarItem.IMAGE),
             listOf(ToolbarItem.COLORS),
-            listOf(ToolbarItem.UNDO, ToolbarItem.REDO),
             listOf(ToolbarItem.STYLES, ToolbarItem.WAYPOINTS, ToolbarItem.MINIMAP),
             listOf(ToolbarItem.ZOOM, ToolbarItem.FIT, ToolbarItem.ZOOM_LOCK),
         )

@@ -414,8 +414,14 @@ class CanvasView @JvmOverloads constructor(
         if (!pageRotationChanged) st.relayout()
         if (!st.didInitialFit && w > 0 && h > 0) {
             st.establishInitialView()
-        } else if (!pageRotationChanged && !st.preserveViewOnResize && w != oldw && w > 0) {
-            st.reflowFitWidthForResize() // sidebar opened/closed: re-fit to the new width
+        } else if (!pageRotationChanged && w > 0 && h > 0 && (w != oldw || h != oldh)) {
+            if (st.fullBleedPages) {
+                // A full-bleed note has no remembered zoom: sidebar/window size changes always
+                // recompute the cover fit against the new viewport, in either orientation.
+                st.fitCurrentPageCover()
+            } else if (!st.preserveViewOnResize && w != oldw) {
+                st.reflowFitWidthForResize() // sidebar opened/closed: re-fit to the new width
+            }
         }
         st.clampScroll()
         afterLayout?.invoke()

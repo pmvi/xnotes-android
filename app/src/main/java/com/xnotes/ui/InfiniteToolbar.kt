@@ -21,18 +21,41 @@ import com.xnotes.ui.theme.toComposeColor
 
 /** Which tool a toolbar item arms, for the items that are simply a tool button. */
 private val CANVAS_TOOL_OF: Map<ToolbarItem, Tool> = mapOf(
-    ToolbarItem.PEN to Tool.PEN,
-    ToolbarItem.DASHED to Tool.DASHED,
-    ToolbarItem.CALLIGRAPHY to Tool.CALLIGRAPHY,
-    ToolbarItem.SPEED to Tool.SPEED,
-    ToolbarItem.TAPER to Tool.TAPER,
-    ToolbarItem.HIGHLIGHTER to Tool.HIGHLIGHTER,
-    ToolbarItem.ERASER to Tool.ERASER,
     ToolbarItem.PAN to Tool.PAN,
     ToolbarItem.SELECT to Tool.SELECT,
     ToolbarItem.LASSO to Tool.LASSO,
     ToolbarItem.SHAPE to Tool.SHAPE,
 )
+
+/** Collapse legacy per-pen entries into the paged bar's tabbed ink menu. */
+private fun canvasToolbarSections(layout: com.xnotes.core.tools.ToolbarLayout): List<List<ToolbarItem>> {
+    val inkItems = setOf(
+        ToolbarItem.PEN, ToolbarItem.DASHED, ToolbarItem.CALLIGRAPHY, ToolbarItem.SPEED,
+        ToolbarItem.TAPER, ToolbarItem.HIGHLIGHTER, ToolbarItem.ERASER,
+    )
+    val visible = layout.sections.flatMap { it.visibleEntries }.map { it.item }.toSet()
+    var inkMenuAdded = false
+    val groups = layout.sections.mapNotNull { section ->
+        val rendered = buildList {
+            section.visibleEntries.forEach { entry ->
+                when (entry.item) {
+                    in inkItems -> if (!inkMenuAdded) {
+                        add(ToolbarItem.PEN)
+                        inkMenuAdded = true
+                    }
+                    ToolbarItem.UNDO, ToolbarItem.REDO -> Unit
+                    else -> add(entry.item)
+                }
+            }
+        }
+        rendered.takeIf { it.isNotEmpty() }
+    }
+    val history = listOf(ToolbarItem.UNDO, ToolbarItem.REDO).filter { it in visible }
+    if (history.isEmpty()) return groups
+    val penSection = groups.indexOfFirst { ToolbarItem.PEN in it }
+    val insertAt = if (penSection >= 0) penSection + 1 else 0
+    return groups.toMutableList().apply { add(insertAt.coerceAtMost(size), history) }
+}
 
 /**
  * The infinite canvas's chrome. A separate bar from the paged [Toolbar] because most of that one
@@ -74,17 +97,29 @@ fun InfiniteToolbar(
     // Which swatch has the colour picker open, as on the paged bar: tapping the armed swatch again
     // opens it, so the five colours are both the ink and the way to change it.
     var switcherIndex by remember { mutableStateOf<Int?>(null) }
+    val renderSections = remember(editor.toolbarLayout) { canvasToolbarSections(editor.toolbarLayout) }
 
     // Pinned outside the scrolling strip so closing a split pane is always one tap away.
     ToolbarFrame(armed = editor.tool, trailing = onClosePane?.let { { ClosePaneButton(it) } }) {
-        val sections = editor.toolbarLayout.visibleSections
+        val sections = renderSections
         sections.forEachIndexed { index, section ->
             if (index > 0) Separator()
-            for (entry in section.visibleEntries) {
-                when (val item = entry.item) {
-                    ToolbarItem.HOME -> ToolbarIcon(XnotesIcons.prev, stringResource(R.string.toolbar_home)) { onOpenBackstage() }
+            for (item in section) {
+                when (item) {
+                    ToolbarItem.HOME -> ToolbarIcon(XnotesIcons.close, stringResource(R.string.toolbar_home)) { onOpenBackstage() }
                     // A name has no room down a side rail.
                     ToolbarItem.TITLE -> if (!LocalBar.current.vertical) Label(if (editor.document.displayName == null && editor.document.path == null) stringResource(R.string.untitled) else editor.title, Modifier.padding(end = 4.dp))
+
+                    ToolbarItem.PEN -> InkToolsMenu(
+                        host = editor,
+                        activeTool = editor.tool,
+                        toolIcons = toolIcons,
+                        switcherIndex = switcherIndex,
+                        setSwitcherIndex = { switcherIndex = it },
+                        onSelectTool = editor::armTool,
+                        onPickColor = editor::pickColor,
+                        includeColorTab = false,
+                    )
 
                     in CANVAS_TOOL_OF -> {
                         val tool = CANVAS_TOOL_OF.getValue(item)

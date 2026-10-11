@@ -132,6 +132,8 @@ fun Toolbar(
         val visibleItems = editor.toolbarLayout.sections.flatMap { it.visibleEntries }.map { it.item }.toSet()
         val pageActions = listOf(ToolbarItem.ADD_PAGE, ToolbarItem.SIDEBAR, ToolbarItem.TITLE)
             .filter { it in visibleItems }
+        val historyActions = listOf(ToolbarItem.UNDO, ToolbarItem.REDO)
+            .filter { it in visibleItems }
         val baseSections = editor.toolbarLayout.sections.mapNotNull { section ->
             val rendered = buildList {
                 section.visibleEntries.forEach { entry ->
@@ -144,7 +146,8 @@ fun Toolbar(
                                 inkMenuAdded = true
                             }
                         }
-                        ToolbarItem.HOME, ToolbarItem.ADD_PAGE, ToolbarItem.SIDEBAR, ToolbarItem.TITLE -> Unit
+                        ToolbarItem.HOME, ToolbarItem.ADD_PAGE, ToolbarItem.SIDEBAR, ToolbarItem.TITLE,
+                        ToolbarItem.UNDO, ToolbarItem.REDO -> Unit
                         ToolbarItem.MARKUP -> if (editor.hasPdf) add(entry.item)
                         else -> add(entry.item)
                     }
@@ -152,10 +155,17 @@ fun Toolbar(
             }
             rendered.takeIf { it.isNotEmpty() }
         }
-        if (pageActions.isEmpty()) baseSections
+        val withPageActions = if (pageActions.isEmpty()) baseSections
         else {
             val insertAt = if (baseSections.firstOrNull()?.contains(ToolbarItem.PAGE_NAV) == true) 1 else 0
             baseSections.toMutableList().apply { add(insertAt.coerceAtMost(size), pageActions) }
+        }
+        if (historyActions.isEmpty()) withPageActions
+        else {
+            val penGroup = withPageActions.indexOfFirst { ToolbarItem.PEN in it }
+            val insertAt = if (penGroup >= 0) penGroup + 1
+                else if (withPageActions.firstOrNull()?.contains(ToolbarItem.PAGE_NAV) == true) 1 else 0
+            withPageActions.toMutableList().apply { add(insertAt.coerceAtMost(size), historyActions) }
         }
     }
     // Pinned outside the scrolling strip so closing a split pane is always one tap away.
@@ -226,7 +236,15 @@ private fun ToolbarItemView(
         ToolbarItem.SIDEBAR ->
             ToolbarIcon(XnotesIcons.sidebar, stringResource(R.string.side_panel), active = editor.sidebarVisible, shortcut = Keys.SIDEBAR) { editor.toggleSidebar() }
 
-        ToolbarItem.PEN -> InkToolsMenu(editor, toolIcons, switcherIndex, setSwitcherIndex)
+        ToolbarItem.PEN -> InkToolsMenu(
+            host = editor,
+            activeTool = editor.tool,
+            toolIcons = toolIcons,
+            switcherIndex = switcherIndex,
+            setSwitcherIndex = setSwitcherIndex,
+            onSelectTool = editor::selectTool,
+            onPickColor = editor::pickColor,
+        )
 
         ToolbarItem.DASHED, ToolbarItem.CALLIGRAPHY, ToolbarItem.SPEED,
         ToolbarItem.TAPER, ToolbarItem.HIGHLIGHTER, ToolbarItem.ERASER, ToolbarItem.PAN,
@@ -303,20 +321,24 @@ private fun ToolbarItemView(
 
 /** Compact pen/eraser entry with stroke tools and colour swatches on separate tabs. */
 @Composable
-private fun InkToolsMenu(
-    editor: Editor,
+internal fun InkToolsMenu(
+    host: ToolPopupHost,
+    activeTool: Tool,
     toolIcons: Map<Tool, ImageVector>,
     switcherIndex: Int?,
     setSwitcherIndex: (Int?) -> Unit,
+    onSelectTool: (Tool) -> Unit,
+    onPickColor: (Int) -> Unit,
+    includeColorTab: Boolean = true,
 ) {
     var open by remember { mutableStateOf(false) }
     val inkTools = listOf(Tool.PEN, Tool.DASHED, Tool.CALLIGRAPHY, Tool.SPEED, Tool.TAPER, Tool.HIGHLIGHTER, Tool.ERASER)
-    var tab by remember(editor.tool) {
-        mutableStateOf(inkTools.indexOf(editor.tool).takeIf { it >= 0 } ?: 0)
+    var tab by remember(activeTool) {
+        mutableStateOf(inkTools.indexOf(activeTool).takeIf { it >= 0 } ?: 0)
     }
-    val currentIcon = toolIcons[editor.tool]?.takeIf { editor.tool in inkTools } ?: toolIcons.getValue(Tool.PEN)
+    val currentIcon = toolIcons[activeTool]?.takeIf { activeTool in inkTools } ?: toolIcons.getValue(Tool.PEN)
     Box {
-        ToolbarIcon(currentIcon, stringResource(R.string.tool_pen), active = editor.tool in inkTools, outlinedActive = true) {
+        ToolbarIcon(currentIcon, stringResource(R.string.tool_pen), active = activeTool in inkTools, outlinedActive = true) {
             open = true
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -335,38 +357,40 @@ private fun InkToolsMenu(
                                 outlinedActive = true,
                             ) {
                                 tab = index
-                                editor.selectTool(tool)
+                                onSelectTool(tool)
                             }
                         }
                     }
-                    ToolbarIcon(
-                        icon = XnotesIcons.palette,
-                        contentDescription = stringResource(R.string.toolbar_colours),
-                        active = tab == inkTools.size,
-                        outlinedActive = true,
-                    ) { tab = inkTools.size }
+                    if (includeColorTab) {
+                        ToolbarIcon(
+                            icon = XnotesIcons.palette,
+                            contentDescription = stringResource(R.string.toolbar_colours),
+                            active = tab == inkTools.size,
+                            outlinedActive = true,
+                        ) { tab = inkTools.size }
+                    }
                 }
-                if (tab == inkTools.size) {
+                if (includeColorTab && tab == inkTools.size) {
                     Row(
                         Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        editor.toolbarColors.take(editor.toolbarColorCount).forEachIndexed { i, color ->
+                        host.hostToolbarColors.take(host.hostToolbarColorCount).forEachIndexed { i, color ->
                             Box {
                                 Swatch(
                                     color = color.toComposeColor(),
-                                    active = i == editor.activeColorIndex,
-                                    onClick = { if (i == editor.activeColorIndex) setSwitcherIndex(i) else editor.pickColor(i) },
+                                    active = i == host.hostActiveColorIndex,
+                                    onClick = { if (i == host.hostActiveColorIndex) setSwitcherIndex(i) else onPickColor(i) },
                                 )
-                                if (switcherIndex == i) ColorSwitcherPopup(editor, i) { setSwitcherIndex(null) }
+                                if (switcherIndex == i) ColorSwitcherPopup(host, i) { setSwitcherIndex(null) }
                             }
                         }
                     }
                 } else {
                     val tool = inkTools[tab.coerceIn(0, inkTools.lastIndex)]
-                    if (tool == Tool.ERASER) EraserConfigPopup(editor, inline = true) { }
-                    else ToolConfigPopup(editor, tool, inline = true) { }
+                    if (tool == Tool.ERASER) EraserConfigPopup(host, inline = true) { }
+                    else ToolConfigPopup(host, tool, inline = true) { }
                 }
             }
         }

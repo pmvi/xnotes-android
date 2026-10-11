@@ -1204,7 +1204,11 @@ private fun EditorPane(
                     onClosePane = onClose,
                 )
             }
-            ToolbarAround(bar, onCover = canvas::setToolbarCover) { floatingBar ->
+            ToolbarAround(
+                bar,
+                onCover = canvas::setToolbarCover,
+                onToolbarStylusContact = canvas::onToolbarStylusContact,
+            ) { floatingBar ->
                 Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
                     AndroidView(
                         factory = { detached(canvas.surfaces) },

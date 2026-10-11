@@ -57,6 +57,9 @@ class InfiniteCanvasView @JvmOverloads constructor(
     /** Pointer handler installed by the interaction layer. */
     var input: ((MotionEvent) -> Boolean)? = null
 
+    /** Optional vendor stylus preview path; true means HvPen owns this contact event. */
+    var externalStylusInput: ((MotionEvent) -> Boolean)? = null
+
     /** Hover handler (stylus/mouse hover), for the eraser cursor. */
     var hover: ((MotionEvent) -> Boolean)? = null
 
@@ -270,6 +273,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
 
     @Suppress("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (externalStylusInput?.invoke(event) == true) return true
         if (trackFourFingerTap(event)) return true
         if (trackMultiFingerTap(event)) return true
         return input?.invoke(event) ?: super.onTouchEvent(event)
