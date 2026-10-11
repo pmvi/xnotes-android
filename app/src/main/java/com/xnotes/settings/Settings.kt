@@ -139,6 +139,14 @@ data class Settings(
 
             val colors = rgbaList(o.optJSONArray("toolbar_colors")).toMutableList()
             while (colors.size < InkPalette.MAX_SWATCHES) colors.add(InkPalette.presets[colors.size])
+            val activeColor = o.optInt("active_color", 0).coerceIn(0, InkPalette.MAX_SWATCHES - 1)
+            // Move existing installs from the old default green first swatch to black. Swap the
+            // two entries so every configured colour stays available and the change applies once.
+            if (activeColor == 0 && colors.firstOrNull() == InkPalette.GREEN) {
+                val blackIndex = colors.indexOf(InkPalette.BLACK)
+                colors[0] = InkPalette.BLACK
+                if (blackIndex > 0) colors[blackIndex] = InkPalette.GREEN
+            }
 
             return Settings(
                 viewDefaults = o.optJSONObject("view_defaults")
@@ -154,7 +162,7 @@ data class Settings(
                     ToolbarLayout.CANVAS_ITEMS,
                     ToolbarLayout.CANVAS_DEFAULT,
                 ),
-                activeColor = o.optInt("active_color", 0).coerceIn(0, InkPalette.MAX_SWATCHES - 1),
+                activeColor = activeColor,
                 // Only tools the toolbar can arm come back; a transient one (e.g. TEXT_BOX) would
                 // leave the bar showing a tool the user never picked.
                 lastTool = Tool.fromId(o.optString("last_tool", ""))

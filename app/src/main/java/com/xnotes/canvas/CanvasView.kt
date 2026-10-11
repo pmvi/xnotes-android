@@ -61,6 +61,9 @@ class CanvasView @JvmOverloads constructor(
     /** Pointer handler installed by the interaction layer. */
     var input: ((MotionEvent) -> Boolean)? = null
 
+    /** Optional vendor-owned stylus input path; true means the native preview owns this event. */
+    var externalStylusInput: ((MotionEvent) -> Boolean)? = null
+
     /** Clean two-finger tap (finger-only, brief, near-stationary), for the configurable gesture. */
     var onTwoFingerTap: (() -> Unit)? = null
 
@@ -69,6 +72,32 @@ class CanvasView @JvmOverloads constructor(
 
     /** Invoked after the viewport is (re)laid out and the initial fit applied. */
     var afterLayout: (() -> Unit)? = null
+
+    /** Rotate the displayed page so its long edge follows the device's long axis. */
+    fun syncPageRotationToScreen(): Boolean {
+        val st = state ?: return false
+        val page = st.document.pages.firstOrNull() ?: return false
+        val pageW = st.outerW(page)
+        val pageH = st.outerH(page)
+        if (pageW <= 0.0 || pageH <= 0.0) return false
+        val screenLandscape = resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val pageLandscape = pageW > pageH
+        val nearlySquare = kotlin.math.abs(pageW - pageH) / maxOf(pageW, pageH) < 0.02
+        // A 270° display rotation places the original page head at the left in landscape.
+        val target = if (!nearlySquare && pageLandscape != screenLandscape) 270 else 0
+        if (st.rotationDeg == target) return false
+
+        val currentPage = if (st.didInitialFit) st.currentPageIndex() else 0
+        st.rotationDeg = target
+        st.relayout()
+        if (st.didInitialFit && st.fullBleedPages && st.viewportW > 0 && st.viewportH > 0) {
+            st.currentRow = st.rowIndexOf(currentPage)
+            st.fitCurrentPageCover(currentPage)
+        }
+        invalidate()
+        return true
+    }
 
     /** Hover handler (stylus/mouse hover) for the eraser cursor. */
     var hover: ((MotionEvent) -> Boolean)? = null
@@ -153,6 +182,7 @@ class CanvasView @JvmOverloads constructor(
 
     @Suppress("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (externalStylusInput?.invoke(event) == true) return true
         if (trackScrollbar(event)) return true
         if (trackFourFingerTap(event)) return true
         if (trackMultiFingerTap(event)) return true
@@ -380,10 +410,11 @@ class CanvasView @JvmOverloads constructor(
         val st = state ?: return
         st.viewportW = w
         st.viewportH = h
-        st.relayout()
+        val pageRotationChanged = syncPageRotationToScreen()
+        if (!pageRotationChanged) st.relayout()
         if (!st.didInitialFit && w > 0 && h > 0) {
             st.establishInitialView()
-        } else if (w != oldw && w > 0) {
+        } else if (!pageRotationChanged && !st.preserveViewOnResize && w != oldw && w > 0) {
             st.reflowFitWidthForResize() // sidebar opened/closed: re-fit to the new width
         }
         st.clampScroll()

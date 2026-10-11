@@ -20,12 +20,12 @@ object InkPalette {
     val NAVY = Rgba(40, 60, 140, 255)
     val BLACK = Rgba(20, 20, 20, 255)
 
-    val DEFAULT = GREEN
+    val DEFAULT = BLACK
 
     /** Full preset palette offered by the colour controls; also the default toolbar swatches. */
     val presets = listOf(
-        GREEN, NEAR_WHITE, RED, AMBER, CYAN, VIOLET, GREY,
-        ORANGE, PINK, BLUE, LIME, TEAL, BROWN, NAVY, BLACK,
+        BLACK, NEAR_WHITE, RED, AMBER, CYAN, VIOLET, GREY,
+        ORANGE, PINK, BLUE, LIME, TEAL, BROWN, NAVY, GREEN,
     )
 
     /** Most swatches the toolbar can show; one per preset. */

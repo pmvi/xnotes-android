@@ -13,10 +13,13 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -79,23 +82,23 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ToolConfigPopup(editor: ToolPopupHost, tool: Tool, onDismiss: () -> Unit) {
-    val base = remember { editor.toolConfig(tool) }
-    var pressure by remember { mutableStateOf(base.pressureEnabled) }
-    var sensitivity by remember { mutableStateOf(ToolConversions.minFactorToSensitivity(base.pressureMinFactor).toFloat()) }
-    var multiplier by remember { mutableStateOf(ToolConversions.directionStrengthToMultiplier(base.directionStrength).toFloat()) }
-    var speed by remember { mutableStateOf(ToolConversions.strengthToSpeed(base.speedStrength).toFloat()) }
-    var taperTip by remember { mutableStateOf((base.taperMinFactor * 100).toFloat()) }
-    var width by remember { mutableStateOf(base.baseWidth.toFloat()) }
-    var glow by remember { mutableStateOf(base.neon) }
-    var glowIntensity by remember { mutableStateOf(ToolConversions.neonStrengthToIntensity(base.neonStrength).toFloat()) }
-    var dashLen by remember { mutableStateOf(base.dashLength.toFloat()) }
-    var gapLen by remember { mutableStateOf(base.dashGap.toFloat()) }
-    var straight by remember { mutableStateOf(base.straightLine) }
-    var scale by remember { mutableStateOf(base.scale) }
-    var intensity by remember { mutableStateOf(ToolConversions.highlighterAlphaToIntensity(base.highlighterAlpha).toFloat()) }
-    var inverse by remember { mutableStateOf(base.highlighterInverse) }
-    var colorOverride by remember { mutableStateOf(base.colorOverride) }
+fun ToolConfigPopup(editor: ToolPopupHost, tool: Tool, inline: Boolean = false, onDismiss: () -> Unit) {
+    val base = remember(tool) { editor.toolConfig(tool) }
+    var pressure by remember(tool) { mutableStateOf(base.pressureEnabled) }
+    var sensitivity by remember(tool) { mutableStateOf(ToolConversions.minFactorToSensitivity(base.pressureMinFactor).toFloat()) }
+    var multiplier by remember(tool) { mutableStateOf(ToolConversions.directionStrengthToMultiplier(base.directionStrength).toFloat()) }
+    var speed by remember(tool) { mutableStateOf(ToolConversions.strengthToSpeed(base.speedStrength).toFloat()) }
+    var taperTip by remember(tool) { mutableStateOf((base.taperMinFactor * 100).toFloat()) }
+    var width by remember(tool) { mutableStateOf(base.baseWidth.toFloat()) }
+    var glow by remember(tool) { mutableStateOf(base.neon) }
+    var glowIntensity by remember(tool) { mutableStateOf(ToolConversions.neonStrengthToIntensity(base.neonStrength).toFloat()) }
+    var dashLen by remember(tool) { mutableStateOf(base.dashLength.toFloat()) }
+    var gapLen by remember(tool) { mutableStateOf(base.dashGap.toFloat()) }
+    var straight by remember(tool) { mutableStateOf(base.straightLine) }
+    var scale by remember(tool) { mutableStateOf(base.scale) }
+    var intensity by remember(tool) { mutableStateOf(ToolConversions.highlighterAlphaToIntensity(base.highlighterAlpha).toFloat()) }
+    var inverse by remember(tool) { mutableStateOf(base.highlighterInverse) }
+    var colorOverride by remember(tool) { mutableStateOf(base.colorOverride) }
 
     fun emit() {
         val m = ToolConversions.sensitivityToMinFactor(sensitivity.toDouble())
@@ -125,8 +128,7 @@ fun ToolConfigPopup(editor: ToolPopupHost, tool: Tool, onDismiss: () -> Unit) {
         )
     }
 
-    DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
-        Column(Modifier.width(250.dp).padding(horizontal = 14.dp, vertical = 8.dp)) {
+    val controls: @Composable ColumnScope.() -> Unit = {
             PopupTitle(stringResource(tool.labelRes))
             // COLOUR override: "Default" follows the toolbar's active ink colour; pick a hue to pin
             // this tool to it regardless of the toolbar selection.
@@ -187,6 +189,15 @@ fun ToolConfigPopup(editor: ToolPopupHost, tool: Tool, onDismiss: () -> Unit) {
                     SliderRow(stringResource(R.string.caption_glow_intensity), glowIntensity, 0f..100f) { glowIntensity = it; emit() }
                 }
             }
+    }
+    if (inline) {
+        Column(
+            Modifier.width(340.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 8.dp),
+            content = controls,
+        )
+    } else {
+        DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
+            Column(Modifier.width(250.dp).padding(horizontal = 14.dp, vertical = 8.dp), content = controls)
         }
     }
 }
@@ -832,7 +843,7 @@ private fun ZoomLimitRow(label: String, enabled: Boolean, value: Int, onToggle: 
 
 /** Eraser configuration popup: a STROKE/AREA mode picker and a SIZE slider (the eraser radius). */
 @Composable
-fun EraserConfigPopup(editor: ToolPopupHost, onDismiss: () -> Unit) {
+fun EraserConfigPopup(editor: ToolPopupHost, inline: Boolean = false, onDismiss: () -> Unit) {
     val base = remember { editor.toolConfig(Tool.ERASER) }
     var area by remember { mutableStateOf(base.eraseMode == EraseMode.AREA) }
     var size by remember { mutableStateOf(base.baseWidth.toFloat()) }
@@ -851,8 +862,7 @@ fun EraserConfigPopup(editor: ToolPopupHost, onDismiss: () -> Unit) {
         ),
     )
 
-    DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
-        Column(Modifier.width(250.dp).padding(horizontal = 14.dp, vertical = 8.dp)) {
+    val controls: @Composable ColumnScope.() -> Unit = {
             PopupTitle(stringResource(R.string.title_eraser))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ModeChip(stringResource(R.string.eraser_stroke), selected = !area) { area = false; emit() }
@@ -866,6 +876,15 @@ fun EraserConfigPopup(editor: ToolPopupHost, onDismiss: () -> Unit) {
             // you in the eraser.
             ToggleRow(stringResource(R.string.caption_switch_back), switchBack) { switchBack = it; emit() }
             if (editor.hostHasPdf) ToggleRow(stringResource(R.string.caption_erase_markups), markups) { markups = it; emit() }
+    }
+    if (inline) {
+        Column(
+            Modifier.width(340.dp).heightIn(max = 420.dp).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 8.dp),
+            content = controls,
+        )
+    } else {
+        DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
+            Column(Modifier.width(250.dp).padding(horizontal = 14.dp, vertical = 8.dp), content = controls)
         }
     }
 }

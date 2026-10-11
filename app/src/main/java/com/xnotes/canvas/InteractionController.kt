@@ -201,13 +201,24 @@ class InteractionController(
      *  tap-gesture toggles. Ruler/wand are never Tools, so they can't land here. Not persisted. */
     var previousTool: Tool? = null
         private set
+    /** Lets the host mirror the currently armed ink style to a device-owned preview renderer. */
+    var onInkStyleChanged: (() -> Unit)? = null
+
     var inkColor: Rgba = InkPalette.DEFAULT
+        set(value) {
+            if (field == value) return
+            field = value
+            onInkStyleChanged?.invoke()
+        }
 
     /** Whether a finger draws (true) or pans (false). The stylus always uses the armed tool. */
     var fingerDraws: Boolean = false
 
     /** Panning allowed while zoom is locked: "single" (default) | "double" | "none". */
     var zoomLockPan: String = "single"
+
+    /** Paged-note host can keep page navigation fixed while leaving stylus editing untouched. */
+    var navigationEnabled: Boolean = true
 
     /** Whether holding a freehand ink stroke still snaps it to a recognized shape (spec: "hold to snap"). */
     var detectShapes: Boolean = false
@@ -521,7 +532,9 @@ class InteractionController(
     fun configFor(t: Tool): ToolConfig = toolConfigs[t] ?: ToolDefaults.configFor(t)
 
     fun setToolConfig(t: Tool, config: ToolConfig) {
+        if (toolConfigs[t] == config) return
         toolConfigs[t] = config
+        if (t == tool) onInkStyleChanged?.invoke()
     }
 
     fun setTool(t: Tool) {
@@ -855,6 +868,7 @@ class InteractionController(
     }
 
     private fun handlePointerDown(e: MotionEvent) {
+        if (!navigationEnabled) return
         cancelLongPress()
         // A second finger turns a PDF text drag into a pinch; the selection stays, a mark in the making goes.
         if (mode == PointerMode.PDF_TEXT) {
@@ -3576,10 +3590,11 @@ class InteractionController(
 
     // When zoom is locked, the zoomLockPan preference decides which pan gestures still move the
     // viewport: "single" keeps both, "double" drops the single finger, "none" freezes the page.
-    private fun singleFingerPanAllowed(): Boolean = !(state.zoomLocked && zoomLockPan != "single")
+    private fun singleFingerPanAllowed(): Boolean = navigationEnabled && !(state.zoomLocked && zoomLockPan != "single")
     private fun pinchPanAllowed(): Boolean = !(state.zoomLocked && zoomLockPan == "none")
 
     private fun beginPan(vx: Double, vy: Double, fromPenButton: Boolean = false) {
+        if (!navigationEnabled) { mode = PointerMode.IDLE; return }
         mode = PointerMode.PAN
         panDownViewport = Pt(vx, vy)
         panFromPenButton = fromPenButton

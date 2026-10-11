@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- On Android 12+, theme the system splash to the loader's dark stage and
-         suppress the launcher icon so the loader animation carries the launch. -->
+    <!-- On Android 12+, keep the system splash on the same white paper as the app. -->
     <style name="Theme.Xnotes.Splash" parent="Theme.Xnotes">
         <item name="android:windowBackground">@color/loader_bg</item>
         <item name="android:windowSplashScreenBackground">@color/loader_bg</item>

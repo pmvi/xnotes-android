@@ -1,40 +1,43 @@
 package com.xnotes.ui
 
-import android.graphics.drawable.AnimationDrawable
-import android.widget.ImageView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import com.xnotes.R
 
-/**
- * Fullscreen launch animation: the exported frame-by-frame glitch loader
- * ([R.drawable.xnotes_loader] — a 24-frame ~1.6s [AnimationDrawable]) centred on a
- * pure-black stage that matches the frames' flat black background exactly, so
- * there's no edge seam. Shown while the session restores, then faded out.
- */
+/** Minimal white-paper launch indicator for the e-ink build. */
 @Composable
 fun XnotesLoader(modifier: Modifier = Modifier) {
-    val cfg = LocalConfiguration.current
-    // Scale with the short edge but cap it, so phones render big without tablets ballooning.
-    val shortEdge = minOf(cfg.screenWidthDp, cfg.screenHeightDp)
-    val side = minOf(shortEdge * 0.55f, 288f).dp
-    Box(
-        modifier.fillMaxSize().background(Color.Black),
-        contentAlignment = Alignment.Center,
-    ) {
-        AndroidView(
-            factory = { ctx -> ImageView(ctx).apply { setImageResource(R.drawable.xnotes_loader) } },
-            update = { iv -> (iv.drawable as? AnimationDrawable)?.let { if (!it.isRunning) it.start() } },
-            modifier = Modifier.size(side),
-        )
+    val transition = rememberInfiniteTransition(label = "loader")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
+        label = "loader-arc",
+    )
+    Box(modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(42.dp)) {
+            drawArc(
+                color = Color.Black,
+                startAngle = phase * 360f,
+                sweepAngle = 230f,
+                useCenter = false,
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
     }
 }

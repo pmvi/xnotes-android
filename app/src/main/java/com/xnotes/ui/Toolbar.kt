@@ -19,17 +19,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -67,6 +73,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xnotes.R
@@ -117,16 +124,53 @@ fun Toolbar(
     var configForTool by remember { mutableStateOf<Tool?>(null) }
     var switcherIndex by remember { mutableStateOf<Int?>(null) }
     var renaming by remember { mutableStateOf(false) }
+    // Legacy saved layouts can contain each stroke and colour swatch separately. Fold that whole
+    // family into one compact entry, group page/sidebar/title actions together, and discard empty
+    // groups. This also upgrades layouts already saved on the device without resetting them.
+    val renderSections = remember(editor.toolbarLayout, editor.hasPdf) {
+        var inkMenuAdded = false
+        val visibleItems = editor.toolbarLayout.sections.flatMap { it.visibleEntries }.map { it.item }.toSet()
+        val pageActions = listOf(ToolbarItem.ADD_PAGE, ToolbarItem.SIDEBAR, ToolbarItem.TITLE)
+            .filter { it in visibleItems }
+        val baseSections = editor.toolbarLayout.sections.mapNotNull { section ->
+            val rendered = buildList {
+                section.visibleEntries.forEach { entry ->
+                    when (entry.item) {
+                        ToolbarItem.PEN, ToolbarItem.DASHED, ToolbarItem.CALLIGRAPHY,
+                        ToolbarItem.SPEED, ToolbarItem.TAPER, ToolbarItem.HIGHLIGHTER,
+                        ToolbarItem.ERASER, ToolbarItem.COLORS -> {
+                            if (!inkMenuAdded) {
+                                add(ToolbarItem.PEN)
+                                inkMenuAdded = true
+                            }
+                        }
+                        ToolbarItem.HOME, ToolbarItem.ADD_PAGE, ToolbarItem.SIDEBAR, ToolbarItem.TITLE -> Unit
+                        ToolbarItem.MARKUP -> if (editor.hasPdf) add(entry.item)
+                        else -> add(entry.item)
+                    }
+                }
+            }
+            rendered.takeIf { it.isNotEmpty() }
+        }
+        if (pageActions.isEmpty()) baseSections
+        else {
+            val insertAt = if (baseSections.firstOrNull()?.contains(ToolbarItem.PAGE_NAV) == true) 1 else 0
+            baseSections.toMutableList().apply { add(insertAt.coerceAtMost(size), pageActions) }
+        }
+    }
     // Pinned outside the scrolling strip so closing a split pane is always one tap away.
-    ToolbarFrame(armed = editor.tool, trailing = onClosePane?.let { { ClosePaneButton(it) } }) {
+    ToolbarFrame(
+        armed = editor.tool,
+        leading = { NoteExitButton(onClosePane ?: onOpenBackstage) },
+    ) {
         // The bar is driven by the user-customisable layout; separators sit between non-empty
         // sections, and each item dispatches to its renderer (see ToolbarItemView).
-        editor.toolbarLayout.visibleSections.forEachIndexed { si, section ->
+        renderSections.forEachIndexed { si, section ->
             if (si > 0) Separator()
-            section.visibleEntries.forEach { entry ->
+            section.forEach { item ->
                 ToolbarItemView(
                     editor = editor,
-                    item = entry.item,
+                    item = item,
                     toolIcons = toolIcons,
                     configForTool = configForTool,
                     setConfigForTool = { configForTool = it },
@@ -177,21 +221,14 @@ private fun ToolbarItemView(
         // Canvas-only items; a stored paged layout can never hold one, so nothing is drawn.
         ToolbarItem.WAYPOINTS, ToolbarItem.MINIMAP -> Unit
 
-        ToolbarItem.HOME -> ToolbarIcon(XnotesIcons.prev, stringResource(R.string.toolbar_home)) { onOpenBackstage() }
-        // A name has no room down a side rail.
-        ToolbarItem.TITLE -> if (!LocalBar.current.vertical) Tooltip(stringResource(R.string.rename_note)) {
-            Label(
-                if (editor.state.document.displayName == null && editor.state.document.path == null) stringResource(R.string.untitled) else editor.title,
-                modifier = Modifier
-                    .widthIn(max = 160.dp)
-                    .clip(MaterialTheme.shapes.extraSmall)
-                    .clickable { onRename() },
-            )
-        }
+        ToolbarItem.HOME -> Unit // The exit control is pinned beside the title.
+        ToolbarItem.TITLE -> ToolbarIcon(XnotesIcons.edit, stringResource(R.string.rename_note)) { onRename() }
         ToolbarItem.SIDEBAR ->
             ToolbarIcon(XnotesIcons.sidebar, stringResource(R.string.side_panel), active = editor.sidebarVisible, shortcut = Keys.SIDEBAR) { editor.toggleSidebar() }
 
-        ToolbarItem.PEN, ToolbarItem.DASHED, ToolbarItem.CALLIGRAPHY, ToolbarItem.SPEED,
+        ToolbarItem.PEN -> InkToolsMenu(editor, toolIcons, switcherIndex, setSwitcherIndex)
+
+        ToolbarItem.DASHED, ToolbarItem.CALLIGRAPHY, ToolbarItem.SPEED,
         ToolbarItem.TAPER, ToolbarItem.HIGHLIGHTER, ToolbarItem.ERASER, ToolbarItem.PAN,
         ToolbarItem.SELECT, ToolbarItem.LASSO, ToolbarItem.SCREENSHOT, ToolbarItem.SHAPE,
         ToolbarItem.TEXT, ToolbarItem.TEXT_BOX -> {
@@ -214,7 +251,7 @@ private fun ToolbarItemView(
         ToolbarItem.REDO -> ToolbarIcon(XnotesIcons.redo, stringResource(R.string.redo), enabled = editor.canRedo, shortcut = Keys.REDO) { editor.redo() }
 
         ToolbarItem.PAGE_NAV -> {
-            ToolbarIcon(XnotesIcons.prev, stringResource(R.string.previous_page), shortcut = Keys.PREV_PAGE) { editor.prevPage() }
+            ToolbarIcon(XnotesIcons.minus, stringResource(R.string.previous_page), shortcut = Keys.PREV_PAGE) { editor.prevPage() }
             var jumpOpen by remember { mutableStateOf(false) }
             Box {
                 Tooltip(stringResource(R.string.title_go_to_page)) {
@@ -228,8 +265,9 @@ private fun ToolbarItemView(
                 }
                 if (jumpOpen) PageJumpPopup(editor) { jumpOpen = false }
             }
-            ToolbarIcon(XnotesIcons.next, stringResource(R.string.next_page), shortcut = Keys.NEXT_PAGE) { editor.nextPage() }
+            ToolbarIcon(XnotesIcons.plus, stringResource(R.string.next_page), shortcut = Keys.NEXT_PAGE) { editor.nextPage() }
         }
+        ToolbarItem.ADD_PAGE -> ToolbarIcon(XnotesIcons.page, stringResource(R.string.toolbar_add_page)) { editor.addPage() }
         ToolbarItem.STYLES -> StylesButton(editor, onImportTemplate)
         ToolbarItem.MARGINS -> MarginsButton(editor)
         ToolbarItem.VIEW -> ViewButton(editor)
@@ -259,14 +297,77 @@ private fun ToolbarItemView(
 
         ToolbarItem.FULLSCREEN -> ToolbarIcon(XnotesIcons.fullscreen, stringResource(R.string.toolbar_fullscreen), shortcut = Keys.FULLSCREEN) { onToggleFullscreen() }
 
-        ToolbarItem.COLORS -> editor.toolbarColors.take(editor.toolbarColorCount).forEachIndexed { i, color ->
-            Box {
-                Swatch(
-                    color = color.toComposeColor(),
-                    active = i == editor.activeColorIndex,
-                    onClick = { if (i == editor.activeColorIndex) setSwitcherIndex(i) else editor.pickColor(i) },
-                )
-                if (switcherIndex == i) ColorSwitcherPopup(editor, i) { setSwitcherIndex(null) }
+        ToolbarItem.COLORS -> Unit // Folded into the ink-tools tabbed menu.
+    }
+}
+
+/** Compact pen/eraser entry with stroke tools and colour swatches on separate tabs. */
+@Composable
+private fun InkToolsMenu(
+    editor: Editor,
+    toolIcons: Map<Tool, ImageVector>,
+    switcherIndex: Int?,
+    setSwitcherIndex: (Int?) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val inkTools = listOf(Tool.PEN, Tool.DASHED, Tool.CALLIGRAPHY, Tool.SPEED, Tool.TAPER, Tool.HIGHLIGHTER, Tool.ERASER)
+    var tab by remember(editor.tool) {
+        mutableStateOf(inkTools.indexOf(editor.tool).takeIf { it >= 0 } ?: 0)
+    }
+    val currentIcon = toolIcons[editor.tool]?.takeIf { editor.tool in inkTools } ?: toolIcons.getValue(Tool.PEN)
+    Box {
+        ToolbarIcon(currentIcon, stringResource(R.string.tool_pen), active = editor.tool in inkTools, outlinedActive = true) {
+            open = true
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Column(Modifier.width(360.dp).padding(horizontal = 8.dp, vertical = 6.dp)) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    inkTools.forEachIndexed { index, tool ->
+                        val icon = toolIcons[tool]
+                        if (icon != null) {
+                            ToolbarIcon(
+                                icon = icon,
+                                contentDescription = stringResource(tool.labelRes),
+                                active = tab == index,
+                                outlinedActive = true,
+                            ) {
+                                tab = index
+                                editor.selectTool(tool)
+                            }
+                        }
+                    }
+                    ToolbarIcon(
+                        icon = XnotesIcons.palette,
+                        contentDescription = stringResource(R.string.toolbar_colours),
+                        active = tab == inkTools.size,
+                        outlinedActive = true,
+                    ) { tab = inkTools.size }
+                }
+                if (tab == inkTools.size) {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        editor.toolbarColors.take(editor.toolbarColorCount).forEachIndexed { i, color ->
+                            Box {
+                                Swatch(
+                                    color = color.toComposeColor(),
+                                    active = i == editor.activeColorIndex,
+                                    onClick = { if (i == editor.activeColorIndex) setSwitcherIndex(i) else editor.pickColor(i) },
+                                )
+                                if (switcherIndex == i) ColorSwitcherPopup(editor, i) { setSwitcherIndex(null) }
+                            }
+                        }
+                    }
+                } else {
+                    val tool = inkTools[tab.coerceIn(0, inkTools.lastIndex)]
+                    if (tool == Tool.ERASER) EraserConfigPopup(editor, inline = true) { }
+                    else ToolConfigPopup(editor, tool, inline = true) { }
+                }
             }
         }
     }
@@ -289,6 +390,7 @@ private fun ToolButton(
             icon,
             stringResource(tool.labelRes),
             active = armed,
+            outlinedActive = true,
             glideKey = tool,
             hint = if (armed && configurable) stringResource(R.string.tip_tap_for_settings) else null,
             shortcut = PAGED_TOOL_KEYS[tool],
@@ -477,6 +579,7 @@ internal fun ToolbarIcon(
     icon: ImageVector,
     contentDescription: String,
     active: Boolean = false,
+    outlinedActive: Boolean = false,
     enabled: Boolean = true,
     glideKey: Any? = null,
     hint: String? = null,
@@ -498,6 +601,7 @@ internal fun ToolbarIcon(
     val fill by animateFloatAsState(if (active && glide == null) 1f else 0f, tween(SELECT_FADE_MS), label = "toolFill")
     if (glide != null) DisposableEffect(glide, glideKey) { onDispose { glide.centers.remove(glideKey) } }
     val circle = palette.selectionBackground.toComposeColor()
+    val outlineShape = RoundedCornerShape(10.dp)
     // No ripple: the circle is the feedback, and a white flash over it reads as a glitch.
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -510,6 +614,7 @@ internal fun ToolbarIcon(
             Box(
                 Modifier
                     .size(bar.circle)
+                    .then(if (outlinedActive && active) Modifier.clip(outlineShape).border(1.5.dp, palette.accent.toComposeColor(), outlineShape) else Modifier)
                     .then(
                         if (glide == null || glideKey == null) Modifier
                         else Modifier.onGloballyPositioned { c ->
@@ -575,18 +680,28 @@ private fun Rule() {
     )
 }
 
-/** "3 / 12" along the bar; down a side rail, where that is too wide, the two numbers stack. */
+/** The page number and total always use the same slash-separated form. */
 @Composable
 private fun PageCounter(current: Int, count: Int, modifier: Modifier) {
-    if (!LocalBar.current.vertical) {
-        Label("$current / $count", modifier)
-        return
+    val bar = LocalBar.current
+    Tooltip(stringResource(R.string.title_go_to_page)) {
+        Text(
+            "$current / $count",
+            color = LocalPalette.current.textDim.toComposeColor(),
+            fontSize = if (bar.vertical) (bar.label.value - 1f).coerceAtLeast(9f).sp else bar.label,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.Center,
+            modifier = modifier
+                .then(if (bar.vertical) Modifier.width(bar.thickness) else Modifier)
+                .padding(horizontal = 2.dp, vertical = 4.dp),
+        )
     }
-    Column(modifier.padding(vertical = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Label("$current")
-        Rule()
-        Label("$count")
-    }
+}
+
+@Composable
+private fun NoteExitButton(onExit: () -> Unit) {
+    ToolbarIcon(XnotesIcons.close, stringResource(R.string.toolbar_home), onClick = onExit)
 }
 
 @Composable

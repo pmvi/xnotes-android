@@ -36,6 +36,7 @@ enum class ToolbarItem(val id: String) {
     UNDO("undo"),
     REDO("redo"),
     PAGE_NAV("page_nav"),
+    ADD_PAGE("add_page"),
     STYLES("styles"),
     MARGINS("margins"),
     VIEW("view"),
@@ -117,6 +118,16 @@ data class ToolbarLayout(val sections: List<ToolbarSection>) {
         return copy(sections = mutable.mapIndexed { idx, e -> sections[idx].copy(entries = e) })
     }
 
+    /** Keep page navigation at the leading edge of the paged toolbar, including migrated layouts. */
+    fun pageNavigationFirst(): ToolbarLayout {
+        val nav = sections.asSequence().flatMap { it.entries.asSequence() }
+            .firstOrNull { it.item == ToolbarItem.PAGE_NAV } ?: return this
+        val rest = sections.map { section ->
+            section.copy(entries = section.entries.filterNot { it.item == ToolbarItem.PAGE_NAV })
+        }
+        return copy(sections = listOf(ToolbarSection(listOf(nav))) + rest)
+    }
+
     /** Add any of [among] missing from this layout, visible, so the bar never goes stale
      *  across versions: an item with a designated neighbour ([INSERT_AFTER]) slots in right
      *  after it; anything else is appended to the last section. */
@@ -173,24 +184,22 @@ data class ToolbarLayout(val sections: List<ToolbarSection>) {
         )
 
         /** Everything the paged bar can hold: the whole enum bar the two canvas-only additions. */
-        val NOTE_ITEMS: Set<ToolbarItem> =
-            ToolbarItem.entries.toSet() - setOf(ToolbarItem.WAYPOINTS, ToolbarItem.MINIMAP)
+        val NOTE_ITEMS: Set<ToolbarItem> = ToolbarItem.entries.toSet() - setOf(
+            ToolbarItem.WAYPOINTS, ToolbarItem.MINIMAP,
+            // Paged notes are fixed in place; keep the legacy IDs readable only for migration.
+            ToolbarItem.PAN, ToolbarItem.ZOOM, ToolbarItem.FIT, ToolbarItem.ZOOM_LOCK,
+        )
 
         /** Mirrors the hardcoded bar exactly (see Toolbar.kt) so existing users see no change. */
         val DEFAULT: ToolbarLayout = of(
-            listOf(ToolbarItem.HOME, ToolbarItem.TITLE),
-            listOf(ToolbarItem.SIDEBAR),
-            listOf(
-                ToolbarItem.PEN, ToolbarItem.DASHED, ToolbarItem.CALLIGRAPHY, ToolbarItem.SPEED,
-                ToolbarItem.TAPER, ToolbarItem.HIGHLIGHTER, ToolbarItem.ERASER,
-            ),
-            listOf(ToolbarItem.PAN, ToolbarItem.SELECT, ToolbarItem.LASSO, ToolbarItem.SCREENSHOT),
+            listOf(ToolbarItem.PAGE_NAV),
+            listOf(ToolbarItem.PEN),
+            listOf(ToolbarItem.SELECT, ToolbarItem.LASSO, ToolbarItem.SCREENSHOT),
             listOf(ToolbarItem.WAND, ToolbarItem.SHAPE, ToolbarItem.RULER, ToolbarItem.TEXT, ToolbarItem.TEXT_BOX, ToolbarItem.MARKUP),
             listOf(ToolbarItem.IMAGE),
-            listOf(ToolbarItem.COLORS),
             listOf(ToolbarItem.UNDO, ToolbarItem.REDO),
-            listOf(ToolbarItem.PAGE_NAV, ToolbarItem.STYLES, ToolbarItem.MARGINS, ToolbarItem.VIEW),
-            listOf(ToolbarItem.ZOOM, ToolbarItem.FIT, ToolbarItem.ZOOM_LOCK),
+            listOf(ToolbarItem.ADD_PAGE, ToolbarItem.SIDEBAR, ToolbarItem.TITLE),
+            listOf(ToolbarItem.STYLES, ToolbarItem.MARGINS, ToolbarItem.VIEW),
             listOf(ToolbarItem.FULLSCREEN),
         )
 

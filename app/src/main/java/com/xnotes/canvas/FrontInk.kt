@@ -104,6 +104,26 @@ class FrontInk(
         return false
     }
 
+    /**
+     * Run [action] only after XNotes has put the committed ink on the canvas and its frame has
+     * reached the compositor. A live front-buffer handover can take several frames (including a
+     * PixelCopy), so a plain next-frame callback from the stylus adapter would be too early.
+     */
+    fun afterCanvasPublish(action: () -> Unit) {
+        if (holds.isNotEmpty() || awaitingPublish) {
+            afterPublishCallbacks += action
+        } else {
+            view.publishThen(action)
+        }
+    }
+
+    private fun drainAfterCanvasPublish() {
+        if (holds.isNotEmpty() || awaitingPublish || afterPublishCallbacks.isEmpty()) return
+        val callbacks = afterPublishCallbacks.toList()
+        afterPublishCallbacks.clear()
+        callbacks.forEach { it() }
+    }
+
     /** Bumped by anything that outdates a handover in flight, so a stale capture cannot land. */
     private var handoffGen = 0
 
@@ -115,6 +135,9 @@ class FrontInk(
      * of it anyone can see. A wipe inside that window is the blink this whole file exists to avoid.
      */
     private var awaitingPublish = false
+
+    /** Callbacks waiting until every held stroke has reached a committed canvas frame. */
+    private val afterPublishCallbacks = ArrayList<() -> Unit>()
 
     /** What the front buffer is doing, for the debug HUD, or null when there is no pad. */
     val hud: String?
@@ -419,7 +442,10 @@ class FrontInk(
         // Every settle tracks its own publication, whichever path settled: what the caller does
         // next is not what says when these pixels reached the glass.
         awaitingPublish = true
-        view.publishThen { awaitingPublish = false }
+        view.publishThen {
+            awaitingPublish = false
+            drainAfterCanvasPublish()
+        }
         return true
     }
 

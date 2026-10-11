@@ -11,7 +11,7 @@ import org.json.JSONObject
  * field falls back to its default if missing or malformed.
  */
 data class Preferences(
-    val uiAppearance: String = "system", // "system" (follows OS dark/light) | "dark" | "light" | "oled"
+    val uiAppearance: String = "system", // "system" (device default) | "dark" | "light" | "oled" | "eink"
     val materialMode: MaterialColourMode = MaterialColourMode.DUAL,
     val materialSingleSeed: Rgba = DEFAULT_MATERIAL_SINGLE,
     val materialDualSeed: Rgba = DEFAULT_MATERIAL_DUAL,
@@ -76,8 +76,8 @@ data class Preferences(
     val maxCacheResolution: Int = 2048,
     /** Whether wet ink keeps off the front buffer, so every stroke takes the ordinary canvas path. */
     val disableFrontBuffering: Boolean = false,
-    /** Open in fullscreen; null ⇒ auto (on unless the display has a camera cutout). */
-    val startFullscreen: Boolean? = null,
+    /** Open fullscreen by default; explicit false keeps system bars visible. */
+    val startFullscreen: Boolean? = true,
     /** An imported Helix code theme's file path, or null for the built-in colours. */
     val codeThemePath: String? = null,
     /** The imported code theme's original file name, shown in preferences. */
@@ -218,7 +218,7 @@ data class Preferences(
         fun fromJson(o: JSONObject?): Preferences {
             if (o == null) return Preferences()
             val appearance = o.optString("ui_appearance", "system")
-                .let { if (it == "dark" || it == "light" || it == "oled") it else "system" }
+                .let { if (it == "dark" || it == "light" || it == "oled" || it == "eink") it else "system" }
             val template = o.optString("default_template", "color").let { if (it == "pdf") "pdf" else "color" }
             val zoomLockPan = o.optString("zoom_lock_pan", "single").let { if (it == "double" || it == "none") it else "single" }
             val tapActions = setOf("none", "undo", "redo", "toggle_pan", "toggle_eraser", "toggle_previous")
@@ -246,7 +246,7 @@ data class Preferences(
                 toolbarLook = ToolbarLook(
                     position = ToolbarPosition.fromId(o.optString("toolbar_position")),
                     size = ToolbarSize.fromId(o.optString("toolbar_size")),
-                    floating = o.optBoolean("toolbar_floating", false),
+                    floating = o.optBoolean("toolbar_floating", true),
                 ),
                 hideWindowDecoration = o.optBoolean("hide_window_decoration", false),
                 pageColor = if (o.isNull("page_color")) null else Rgba.fromHex(o.optString("page_color")),
@@ -281,7 +281,7 @@ data class Preferences(
                 canvasMaxZoomPercent = o.optInt("canvas_max_zoom_percent", 6400).coerceIn(200, 100000),
                 maxCacheResolution = o.optInt("max_cache_resolution", 2048).coerceIn(1024, 4096),
                 disableFrontBuffering = o.optBoolean("disable_front_buffering", false),
-                startFullscreen = if (o.has("start_fullscreen")) o.getBoolean("start_fullscreen") else null,
+                startFullscreen = if (o.has("start_fullscreen")) o.getBoolean("start_fullscreen") else true,
                 codeThemePath = o.optString("code_theme_path").ifEmpty { null },
                 codeThemeName = o.optString("code_theme_name").ifEmpty { null },
                 defaultCodeLanguage = o.optString("default_code_language", "cpp")

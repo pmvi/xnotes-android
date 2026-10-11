@@ -57,6 +57,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -428,7 +429,15 @@ private class SidebarNav(
 @Composable
 private fun BackstageSidebar(modifier: Modifier, nav: SidebarNav, onCollapse: () -> Unit) {
     val palette = LocalPalette.current
-    Column(modifier.fillMaxHeight().background(palette.panel.toComposeColor()).padding(vertical = 12.dp)) {
+    Column(
+        modifier.fillMaxHeight()
+            .background(palette.panel.toComposeColor())
+            .drawBehind {
+                val x = size.width - 1.dp.toPx()
+                drawLine(Color.Black, Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
+            }
+            .padding(vertical = 12.dp),
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(start = 18.dp, end = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -481,7 +490,13 @@ private fun BackstageSidebar(modifier: Modifier, nav: SidebarNav, onCollapse: ()
 private fun BackstageRail(modifier: Modifier, nav: SidebarNav, onExpand: () -> Unit) {
     val palette = LocalPalette.current
     Column(
-        modifier.fillMaxHeight().background(palette.panel.toComposeColor()).padding(vertical = 12.dp),
+        modifier.fillMaxHeight()
+            .background(palette.panel.toComposeColor())
+            .drawBehind {
+                val x = size.width - 1.dp.toPx()
+                drawLine(Color.Black, Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
+            }
+            .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Tooltip(stringResource(R.string.expand_sidebar), side = TipSide.RIGHT) {
@@ -822,6 +837,15 @@ private fun HomePane(
                     FloatingActionButton(
                         onClick = { createMenuOpen = true },
                         shape = CircleShape,
+                        containerColor = if (palette.isEink) Color.White else MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = if (palette.isEink) Color.Black else MaterialTheme.colorScheme.onPrimaryContainer,
+                        elevation = if (palette.isEink) FloatingActionButtonDefaults.elevation(
+                            defaultElevation = 0.dp,
+                            pressedElevation = 0.dp,
+                            focusedElevation = 0.dp,
+                            hoveredElevation = 0.dp,
+                        ) else FloatingActionButtonDefaults.elevation(),
+                        modifier = if (palette.isEink) Modifier.border(1.dp, palette.border.toComposeColor(), CircleShape) else Modifier,
                     ) {
                         Icon(XnotesIcons.edit, stringResource(R.string.create_new), modifier = Modifier.size(24.dp))
                     }

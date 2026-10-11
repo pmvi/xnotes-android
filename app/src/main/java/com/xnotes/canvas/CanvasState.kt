@@ -85,6 +85,10 @@ class CanvasState(
     var scrollY: Double = 0.0
     var viewportW: Int = 0
     var viewportH: Int = 0
+    /** Paged editor opts out of the generic fit-width reflow; full-bleed resizing has its own page fit. */
+    var preserveViewOnResize: Boolean = false
+    /** Paged notes can cover the viewport edge-to-edge while preserving the page's aspect ratio. */
+    var fullBleedPages: Boolean = false
     var renderScale: Double = 1.0
 
     /**
@@ -132,18 +136,19 @@ class CanvasState(
 
     /** Horizontal margin on each side of the page column (0 ⇒ fit-width fills the viewport). */
     var sideMargin: Double = MARGIN
+    private val horizontalPageMargin: Double get() = if (fullBleedPages) 0.0 else sideMargin
 
     /** Whether the hairline outline around each page is drawn (a user preference). */
     var pageBorders: Boolean = true
 
     /** Gap (content px) between pages — inside a spread, between rows, and between paginated
      *  rows alike — equal to [sideMargin] so spacing always matches the margin preference. */
-    val pageGap: Double get() = sideMargin
+    val pageGap: Double get() = horizontalPageMargin
 
     /** Margin (content px) above and below the content. Paginated it follows [sideMargin], so a
      *  0 px preference lets the fit-height magnet fill the viewport; vertical scrolling keeps the
      *  fixed [MARGIN] that holds the first page clear of the toolbar. */
-    val vertMargin: Double get() = if (verticalScroll) MARGIN else sideMargin
+    val vertMargin: Double get() = if (fullBleedPages) 0.0 else if (verticalScroll) MARGIN else sideMargin
 
     /** How pages group into layout rows (Single / Double / Cover); see [rowRanges]. */
     var viewingMode: ViewingMode = ViewingMode.SINGLE
@@ -515,7 +520,7 @@ class CanvasState(
         val pages = document.pages
         if (pages.isEmpty()) {
             pageRects = emptyList()
-            contentW = 2 * sideMargin
+            contentW = 2 * horizontalPageMargin
             contentH = 2 * vertMargin
             currentRow = 0
             return
@@ -531,19 +536,19 @@ class CanvasState(
             val maxW = rowWidths.max()
             var y = vertMargin // vertical top margin (keeps the page below the toolbar)
             for ((ri, row) in rows.withIndex()) {
-                var x = sideMargin + (maxW - rowWidths[ri]) / 2.0
+                var x = horizontalPageMargin + (maxW - rowWidths[ri]) / 2.0
                 for (i in row) {
                     rects[i] = Rect(x, y + (rowHeights[ri] - displayH(pages[i])) / 2.0, displayW(pages[i]), displayH(pages[i]))
                     x += displayW(pages[i]) + pageGap
                 }
                 y += rowHeights[ri] + pageGap
             }
-            contentW = maxW + 2 * sideMargin
+            contentW = maxW + 2 * horizontalPageMargin
             contentH = (y - pageGap) + vertMargin
         } else {
             // Paginated: rows run left-to-right in one strip, each top-aligned below the margin.
             val maxH = rowHeights.max()
-            var x = sideMargin
+            var x = horizontalPageMargin
             for ((ri, row) in rows.withIndex()) {
                 var rx = x
                 for (i in row) {
@@ -552,7 +557,7 @@ class CanvasState(
                 }
                 x += rowWidths[ri] + pageGap
             }
-            contentW = (x - pageGap) + sideMargin
+            contentW = (x - pageGap) + horizontalPageMargin
             contentH = maxH + 2 * vertMargin
         }
         pageRects = rects.map { it!! }
@@ -578,8 +583,9 @@ class CanvasState(
         val rows = rowRanges()
         if (rows.isEmpty()) return Pt(0.0, 0.0)
         val rb = rowBounds(rows[rowIndex.coerceIn(0, rows.lastIndex)])
-        val minX = (rb.left - sideMargin) * zoom - insetLeft
-        val maxX = (rb.right + sideMargin) * zoom - viewportW + insetRight
+        if (fullBleedPages) return rowClampedScroll(rowIndex, rb.left * zoom, rb.top * zoom)
+        val minX = (rb.left - horizontalPageMargin) * zoom - insetLeft
+        val maxX = (rb.right + horizontalPageMargin) * zoom - viewportW + insetRight
         val sx = if (maxX < minX) (minX + maxX) / 2.0 else minX
         val sy = (rb.top * zoom - TOP_GAP - insetTop).coerceAtLeast(-insetTop)
         return Pt(sx, sy)
@@ -590,8 +596,8 @@ class CanvasState(
         val rows = rowRanges()
         if (rows.isEmpty()) return false
         val rb = rowBounds(rows[currentRow.coerceIn(0, rows.lastIndex)])
-        val minX = (rb.left - sideMargin) * zoom - insetLeft
-        val maxX = (rb.right + sideMargin) * zoom - viewportW + insetRight
+        val minX = (rb.left - horizontalPageMargin) * zoom - insetLeft
+        val maxX = (rb.right + horizontalPageMargin) * zoom - viewportW + insetRight
         if (maxX < minX) return true // the row fits: both edges at once
         return if (next) scrollX >= maxX - 1.0 else scrollX <= minX + 1.0
     }
@@ -624,8 +630,8 @@ class CanvasState(
         val ch = contentH * zoom
         // Paginated: the row clamp centres the row when it fits, so the scroll always wins; the
         // whole strip must never be centred (two pages would push each single-page row off centre).
-        val ox = (if (!verticalScroll || cw >= clearW) -scrollX else insetLeft + (clearW - cw) / 2.0) - flipOffsetX
-        val oy = (if (ch < clearH) insetTop + (clearH - ch) / 2.0 else -scrollY) - overscrollY
+        val ox = (if (fullBleedPages || !verticalScroll || cw >= clearW) -scrollX else insetLeft + (clearW - cw) / 2.0) - flipOffsetX
+        val oy = (if (!fullBleedPages && ch < clearH) insetTop + (clearH - ch) / 2.0 else -scrollY) - overscrollY
         return Pt(ox, oy)
     }
 
@@ -666,8 +672,19 @@ class CanvasState(
         val rows = rowRanges()
         if (rows.isEmpty()) return Pt(sx, sy)
         val rb = rowBounds(rows[rowIndex.coerceIn(0, rows.lastIndex)])
-        val minX = (rb.left - sideMargin) * zoom - insetLeft
-        val maxX = (rb.right + sideMargin) * zoom - viewportW + insetRight
+        if (fullBleedPages) {
+            val minX = rb.left * zoom
+            val maxX = rb.right * zoom - viewportW
+            val minY = rb.top * zoom
+            val maxY = rb.bottom * zoom - viewportH
+            // When the page is smaller than the viewport on an axis, keep it centred. When it
+            // covers the viewport, allow symmetric cropping so rotation never pins it to a corner.
+            val x = if (maxX < minX) (minX + maxX) / 2.0 else sx.coerceIn(minX, maxX)
+            val y = if (maxY < minY) (minY + maxY) / 2.0 else sy.coerceIn(minY, maxY)
+            return Pt(x, y)
+        }
+        val minX = (rb.left - horizontalPageMargin) * zoom - insetLeft
+        val maxX = (rb.right + horizontalPageMargin) * zoom - viewportW + insetRight
         val cx = if (maxX < minX) (minX + maxX) / 2.0 else sx.coerceIn(minX, maxX)
         val maxY = ((rb.bottom + vertMargin) * zoom - viewportH + insetBottom).coerceAtLeast(-insetTop)
         return Pt(cx, sy.coerceIn(-insetTop, maxY))
@@ -699,6 +716,11 @@ class CanvasState(
      */
     fun drawablePageRange(): IntRange {
         val last = document.pages.lastIndex
+        if (last < 0) return 0..-1
+        if (fullBleedPages) {
+            val page = currentPageIndex().coerceIn(0, last)
+            return page..page
+        }
         if (verticalScroll) return 0..last
         val rows = rowRanges()
         if (rows.isEmpty()) return 0..last
@@ -868,7 +890,7 @@ class CanvasState(
         if (zoomLocked || pages.isEmpty() || viewportW == 0 || viewportH == 0) return
         val cur = currentPageIndex()
         val page = pages[cur]
-        val w = displayW(page) + 2 * sideMargin
+        val w = displayW(page) + 2 * horizontalPageMargin
         val h = displayH(page) + 2 * vertMargin
         if (w <= 0.0 || h <= 0.0) return
         zoom = min(clearW / w, clearH / h).coerceIn(minZoom, maxZoom)
@@ -887,7 +909,7 @@ class CanvasState(
         if (!verticalScroll) {
             val rows = rowRanges()
             if (rows.isEmpty()) return 0.0
-            val w = rowBounds(rows[currentRow.coerceIn(0, rows.lastIndex)]).w + 2 * sideMargin
+            val w = rowBounds(rows[currentRow.coerceIn(0, rows.lastIndex)]).w + 2 * horizontalPageMargin
             return if (w <= 0.0) 0.0 else (clearW / w).coerceIn(minZoom, maxZoom)
         }
         if (contentW <= 0.0) return 0.0
@@ -986,6 +1008,27 @@ class CanvasState(
         goToPage(0)
     }
 
+    /** Uniformly scale the selected page to cover the viewport and centre the crop/letterbox. */
+    fun fitCurrentPageCover(pageIndex: Int = currentPageIndex()) {
+        val pages = document.pages
+        if (pages.isEmpty() || viewportW <= 0 || viewportH <= 0) return
+        val index = pageIndex.coerceIn(0, pages.lastIndex)
+        currentRow = rowIndexOf(index)
+        val page = pages[index]
+        val w = displayW(page)
+        val h = displayH(page)
+        if (w <= 0.0 || h <= 0.0) return
+        zoom = max(viewportW / w, viewportH / h).coerceIn(minZoom, maxZoom)
+        fitWidthActive = false
+        fitHeightActive = false
+        invalidateCachesForZoom()
+        val rect = pageRects.getOrNull(index)
+        val pageRect = rect ?: return
+        scrollX = pageRect.left * zoom + (pageRect.w * zoom - viewportW) / 2.0
+        scrollY = pageRect.top * zoom + (pageRect.h * zoom - viewportH) / 2.0
+        clampScroll()
+    }
+
     /**
      * Apply [pendingInitialView] (or fit width when it's null/[InitialView.FitWidth]) once the
      * viewport is sized, and mark the initial fit done. Called when a document is opened and from
@@ -998,6 +1041,7 @@ class CanvasState(
             is InitialView.Restore -> setView(v.zoom, v.scrollX, v.scrollY)
             else -> resetViewToFitWidth()
         }
+        if (fullBleedPages) fitCurrentPageCover()
         pendingInitialView = null
         didInitialFit = true
     }

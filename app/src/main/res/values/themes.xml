@@ -4,11 +4,10 @@
         <item name="android:windowBackground">@color/window_bg</item>
         <item name="android:statusBarColor">@color/window_bg</item>
         <item name="android:navigationBarColor">@color/window_bg</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 
-    <!-- Launch theme: dark stage matching the loader so there's no logo/white flash
-         before the animation appears. Swapped for Theme.Xnotes in MainActivity.onCreate. -->
+    <!-- White paper launch stage to match the e-ink interface. -->
     <style name="Theme.Xnotes.Splash" parent="Theme.Xnotes">
         <item name="android:windowBackground">@color/loader_bg</item>
     </style>

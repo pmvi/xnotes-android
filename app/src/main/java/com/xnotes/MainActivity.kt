@@ -10,6 +10,7 @@ import android.util.DisplayMetrics
 import android.view.Display
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -86,6 +87,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.IntentCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.WindowCompat
 import com.xnotes.R
 import com.xnotes.ui.Editor
 import com.xnotes.ui.Toolbar
@@ -139,8 +141,8 @@ private fun standardPenAction(action: Int): Int = when (action) {
 
 class MainActivity : ComponentActivity() {
 
-    // The editor owns the fullscreen state (persisted preference, default depends on the display
-    // cutout); this activity just applies it to the window. Fullscreen draws edge to edge and lets
+    // The editor owns the fullscreen state (persisted preference, hidden bars by default); this
+    // activity just applies it to the window. Fullscreen draws edge to edge and lets
     // the swipe-in transient bars overlay (no resize), non-fullscreen insets under the bars.
     private var editor: Editor? = null
     // A PDF handed to us by another app ("Open with" / Share); consumed once the editor is ready.
@@ -151,7 +153,7 @@ class MainActivity : ComponentActivity() {
         com.xnotes.platform.FontCatalog.init(this)
         com.xnotes.platform.TemplateLibrary.init(this)
         setTheme(com.xnotes.R.style.Theme_Xnotes) // leave the dark launch/splash theme behind
-        applyFullscreen(!deviceHasDisplayCutout(this)) // provisional; reconciled once the editor loads prefs
+        applyFullscreen(true) // provisional; reconciled once the editor loads prefs
         pendingPdfImport = pdfImportUri(intent)
         setContent {
             val context = LocalContext.current
@@ -193,6 +195,15 @@ class MainActivity : ComponentActivity() {
     // before Compose focus routing, so the controller sees both press and release regardless of
     // which view holds focus. Other keys fall through to the normal dispatch.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val active = editor?.active
+        if (active?.noteOpen == true && !active.canvasOpen &&
+            (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
+        ) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) active.prevPage() else active.nextPage()
+            }
+            if (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP) return true
+        }
         // The pen writes in whichever pane has the focus, so its button belongs to that pane too.
         if (editor?.active?.onStylusButtonKey(event) == true) return true
         return super.dispatchKeyEvent(event)
@@ -236,6 +247,10 @@ class MainActivity : ComponentActivity() {
     // uiMode is in configChanges, so a system dark/light flip lands here instead of recreating us.
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
+        // This activity handles orientation itself (configChanges), so Android does not recreate
+        // the window and the immersive flags can be lost during the resize. Reapply after decor
+        // has received its new bounds, otherwise Hanvon's system UI can show the status bar again.
+        if (editor?.fullscreen == true) window.decorView.post { applyFullscreen(true) }
         val night = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         editor?.onSystemDarkModeChanged(night == android.content.res.Configuration.UI_MODE_NIGHT_YES)
     }
@@ -261,13 +276,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyFullscreen(fullscreen: Boolean) {
+        WindowCompat.setDecorFitsSystemWindows(window, !fullscreen)
+        @Suppress("DEPRECATION")
+        val immersiveFlags = (
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            )
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (fullscreen) {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = immersiveFlags
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         }
     }
 }
@@ -1204,7 +1233,12 @@ private fun EditorPane(
                     onImportTemplate = actions.onImportTemplate,
                 )
             }
-            ToolbarAround(bar, onCover = editor::setToolbarCover) { floatingBar ->
+            ToolbarAround(
+                bar,
+                onCover = editor::setToolbarCover,
+                moveDockToLeftInLandscape = true,
+                onToolbarStylusContact = editor::onToolbarStylusContact,
+            ) { floatingBar ->
                 Row(modifier = Modifier.fillMaxSize()) {
                     if (editor.sidebarVisible) {
                         com.xnotes.ui.SidePanel(

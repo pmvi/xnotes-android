@@ -151,10 +151,16 @@ object XnotesIcons {
     val fullscreen = icon("M15 3h6v6", "M9 21H3v-6", "M21 3l-7 7", "M3 21l7-7")
     val plus = icon("M12 5v14", "M5 12h14")
     val minus = icon("M5 12h14")
+    val collapse = icon("M19 12H5", "M12 5l-7 7 7 7")
+    val expand = icon("M5 12h14", "M12 5l7 7-7 7")
     // The flow bar's font-face button (Lucide "type").
     val fontFace = icon("M12 4v16", "M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2", "M9 20h6")
     val trash = icon("M3 6h18", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2")
     val close = icon("M18 6 6 18", "M6 6l12 12")
+    val hammer = icon(
+        "m15 12-8.5 8.5a2.12 2.12 0 0 1-3-3L12 9",
+        "M17.64 15 22 10.64", "M20.91 11.67 17.34 8.1", "M15.54 6.3l3.16-3.16a2.12 2.12 0 0 1 3 3L18.54 9.3",
+    )
     val bookmark = icon("M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z")
     val contents = icon("M8 6h13", "M8 12h13", "M8 18h13", "M3 6h.01", "M3 12h.01", "M3 18h.01")
     val thumbnails = icon(rect(3.0, 3.0, 7.0, 7.0), rect(14.0, 3.0, 7.0, 7.0), rect(3.0, 14.0, 7.0, 7.0), rect(14.0, 14.0, 7.0, 7.0))

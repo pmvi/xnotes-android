@@ -229,6 +229,7 @@ fun PreferencesPane(
                 Chip(stringResource(R.string.theme_dark), prefs.uiAppearance == "dark") { update(prefs.copy(uiAppearance = "dark")) }
                 Chip(stringResource(R.string.theme_light), prefs.uiAppearance == "light") { update(prefs.copy(uiAppearance = "light")) }
                 Chip(stringResource(R.string.theme_oled), prefs.uiAppearance == "oled") { update(prefs.copy(uiAppearance = "oled")) }
+                Chip(stringResource(R.string.theme_eink), prefs.uiAppearance == "eink") { update(prefs.copy(uiAppearance = "eink")) }
             }
             val systemColours = prefs.materialMode == MaterialColourMode.SYSTEM
             FieldLabel(stringResource(R.string.material_tone))

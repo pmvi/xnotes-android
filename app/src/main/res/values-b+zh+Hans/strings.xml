@@ -33,6 +33,9 @@
     <string name="undo">撤销</string>
     <string name="redo">重做</string>
     <string name="toolbar_page_nav">页面导航</string>
+    <string name="toolbar_add_page">加页</string>
+    <string name="toolbar_collapse">折叠工具栏</string>
+    <string name="toolbar_expand">展开工具栏</string>
     <string name="toolbar_styles">样式</string>
     <string name="toolbar_margins">页边距</string>
     <string name="toolbar_view">视图</string>
@@ -309,6 +312,7 @@
     <string name="theme_dark">深色</string>
     <string name="theme_light">浅色</string>
     <string name="theme_oled">OLED</string>
+    <string name="theme_eink">墨水屏</string>
     <string name="pref_accent_colour">强调色</string>
     <string name="pref_start_fullscreen">启动时全屏</string>
     <string name="pref_input">输入</string>

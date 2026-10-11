@@ -34,6 +34,9 @@
     <string name="undo">Undo</string>
     <string name="redo">Redo</string>
     <string name="toolbar_page_nav">Page nav</string>
+    <string name="toolbar_add_page">Add page</string>
+    <string name="toolbar_collapse">Collapse toolbar</string>
+    <string name="toolbar_expand">Expand toolbar</string>
     <string name="toolbar_styles">Styles</string>
     <string name="toolbar_margins">Margins</string>
     <string name="toolbar_view">View</string>
@@ -321,6 +324,7 @@
     <string name="theme_dark">Dark</string>
     <string name="theme_light">Light</string>
     <string name="theme_oled">OLED</string>
+    <string name="theme_eink">E-ink</string>
     <string name="pref_accent_colour">Accent colour</string>
     <string name="pref_start_fullscreen">Start in fullscreen</string>
     <string name="pref_input">Input</string>

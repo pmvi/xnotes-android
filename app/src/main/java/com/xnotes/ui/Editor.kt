@@ -259,10 +259,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     private var systemInDarkMode = (context.resources.configuration.uiMode and
         android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
-    /** Whether the window runs in fullscreen. Persisted via [Preferences.startFullscreen]; when unset
-     *  it defaults to on unless the display has a camera cutout. The activity observes this and drives
-     *  the window. */
-    var fullscreen by mutableStateOf(settings.prefs.startFullscreen ?: !deviceHasDisplayCutout)
+    /** Whether the window runs in fullscreen. Persisted via [Preferences.startFullscreen]; hidden
+     *  system bars are the default. The activity observes this and drives the window. */
+    var fullscreen by mutableStateOf(settings.prefs.startFullscreen ?: true)
         private set
 
     /** Prepares one of the shared temp dirs. The launch purge drops temps orphaned by a crash, which
@@ -323,6 +322,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** The front buffer wet ink goes into, above [view] and transparent whenever no pen is down. */
     val pad = com.xnotes.gl.GlWetPad(context, onTop = true)
+
+    /** Hanvon's system layer owns the live preview on N10; the XNotes controller commits its samples. */
+    private var hvPenInk: com.xnotes.platform.HvPenInkController? = null
 
     /**
      * The two surfaces, in order. The pad is a sibling above the canvas rather than part of it: the
@@ -490,7 +492,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         private set
     var toolbarColorCount by mutableStateOf(5)
         private set
-    var toolbarLayout by mutableStateOf(ToolbarLayout.DEFAULT)
+    var toolbarLayout by mutableStateOf(ToolbarLayout.DEFAULT.pageNavigationFirst())
 
     /** The infinite canvas's own bar. Its own layout: the two surfaces hold different items. */
     var canvasToolbarLayout by mutableStateOf(ToolbarLayout.CANVAS_DEFAULT)
@@ -549,7 +551,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** The open note's effective View settings: [viewOverrides] resolved over [viewDefaults].
      *  This is what the canvas, caches and thumbnails all consume. */
-    var viewSettings by mutableStateOf(settings.viewDefaults)
+    var viewSettings by mutableStateOf(settings.viewDefaults.copy(
+        mode = com.xnotes.canvas.ViewingMode.SINGLE,
+        verticalScroll = false,
+        rotation = 0,
+    ))
         private set
     var rulerVisible by mutableStateOf(false)
         private set
@@ -847,12 +853,13 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         textMeasurer,
         requestRender = { onRender() },
         onContentChanged = { refreshContent() },
-        onViewChanged = { refreshView() },
+        onViewChanged = { hvPenInk?.updateSelection(); refreshView() },
         onFitWidthSnapped = { showZoomLockHint() },
         onFitWidthReleased = { hideZoomLockHint() },
         onSelectionChanged = { selected -> hasSelection = selected; refreshTextBar() },
         onToolChanged = { t ->
             tool = t
+            hvPenInk?.updateSelection()
             if (t != Tool.TEXT) {
                 endTableEdit()
                 tableMenu = null
@@ -866,6 +873,16 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         onAddPageAtEnd = { addPageAtEnd() },
         onHaptic = { runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) } },
     )
+
+    init {
+        // Paged notes stay at their current content-space zoom/origin; stylus ink and object editing remain enabled.
+        state.preserveViewOnResize = true
+        state.fullBleedPages = true
+        state.viewingMode = com.xnotes.canvas.ViewingMode.SINGLE
+        state.verticalScroll = false
+        state.rotationDeg = 0
+        controller.navigationEnabled = false
+    }
 
     /**
      * Accents from a physical keyboard's dead keys, composed through the layout the user
@@ -1513,6 +1530,24 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         view.genericMotion = { controller.onGenericMotion(it) }
         view.drawOverlay = { renderer, _ -> controller.drawOverlay(renderer) }
         controller.frontInk = com.xnotes.canvas.FrontInk(state, view, pad)
+        hvPenInk = com.xnotes.platform.HvPenInkController(
+            view = view,
+            selection = {
+                val config = controller.configFor(controller.tool)
+                com.xnotes.platform.HvPenInkController.Selection(
+                    controller.tool,
+                    config.copy(rgba = config.colorOverride ?: controller.inkColor),
+                    view.state?.zoom ?: 1.0,
+                )
+            },
+            dispatch = { event -> view.input?.invoke(event) == true },
+            publishAfterRender = { action ->
+                controller.frontInk?.afterCanvasPublish(action) ?: view.publishThen(action)
+            },
+        )
+        controller.onInkStyleChanged = { hvPenInk?.updateSelection() }
+        hvPenInk?.updateSelection()
+        view.externalStylusInput = { event -> hvPenInk?.consumeStylusEvent(event) == true }
         pad.onSurfaceLost = { controller.frontInk?.surfaceLost() }
         view.debugOverlay.frontHud = { controller.frontInk?.hud }
         view.afterLayout = { refreshView() }
@@ -2187,7 +2222,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     private fun applySettings() {
         toolbarColors = settings.toolbarColors
         toolbarColorCount = settings.toolbarColorCount
-        toolbarLayout = settings.toolbarLayout
+        toolbarLayout = settings.toolbarLayout.pageNavigationFirst()
         canvasToolbarLayout = settings.canvasToolbarLayout
         activeColorIndex = settings.activeColor.coerceIn(0, toolbarColorCount - 1)
         // Render always at 1x (the DPI/supersampling control was removed).
@@ -2205,7 +2240,8 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** The appearance mode to render: "system" follows the OS dark/light state. */
     private fun resolvedAppearance(p: Preferences): String =
-        if (p.uiAppearance == "system") (if (systemInDarkMode) "dark" else "light") else p.uiAppearance
+        // This build targets the Hanvon e-ink device, so its default follows the paper profile.
+        if (p.uiAppearance == "system") "eink" else p.uiAppearance
 
     /** The chrome palette for [p]: the system scheme (default-seeded below Android 12) or a custom seed. */
     private fun buildPalette(p: Preferences): Palette {
@@ -2237,7 +2273,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     private fun applyPagePrefsToState(p: Preferences) {
         palette = buildPalette(p)
-        cornerStyle = p.cornerStyle
+        cornerStyle = if (resolvedAppearance(p) == "eink") CornerStyle.SHARP else p.cornerStyle
         toolbarLook = p.toolbarLook
         state.palette = palette
         infiniteOrNull?.applyPalette(palette)
@@ -2321,7 +2357,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         val marginChanged = p.sideMargin != settings.prefs.sideMargin
         settings = settings.copy(prefs = p)
         for (editor in listOfNotNull(this, sibling)) {
-            editor.fullscreen = p.startFullscreen ?: !editor.deviceHasDisplayCutout
+            editor.fullscreen = p.startFullscreen ?: true
             editor.applyPagePrefsToState(p)
             editor.republishFlow(invalidate = true)
             editor.state.invalidateAllCaches()
@@ -2338,7 +2374,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     /** Apply preferences only the home screen reads, without the canvas refresh [applyPreferences] does. */
     fun applyHomePreferences(p: Preferences) {
         settings = settings.copy(prefs = p)
-        cornerStyle = p.cornerStyle
+        cornerStyle = if (resolvedAppearance(p) == "eink") CornerStyle.SHARP else p.cornerStyle
         toolbarLook = p.toolbarLook
         saveSettingsSoon()
         prefsVersion++
@@ -2346,8 +2382,9 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** Apply an edited toolbar layout live and persist (used by the toolbar customiser). */
     fun applyToolbarLayout(layout: ToolbarLayout) {
-        toolbarLayout = layout
-        settings = settings.copy(toolbarLayout = layout)
+        val pinned = layout.pageNavigationFirst()
+        toolbarLayout = pinned
+        settings = settings.copy(toolbarLayout = pinned)
         settingsRepo.save(settings)
     }
 
@@ -4659,7 +4696,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
     /** Re-resolve the effective settings and react to whatever actually changed. */
     private fun applyResolvedViewSettings() {
         val prev = viewSettings
-        val resolved = viewOverrides.resolve(viewDefaults)
+        val resolved = viewOverrides.resolve(viewDefaults).copy(
+            mode = com.xnotes.canvas.ViewingMode.SINGLE,
+            verticalScroll = false,
+            rotation = 0,
+        )
         if (prev == resolved) return
         viewSettings = resolved
         onViewSettingsChanged(prev, resolved)
@@ -4667,25 +4708,21 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
 
     /** Push a settings change into the canvas/caches; each View-menu feature reacts here. */
     private fun onViewSettingsChanged(prev: com.xnotes.canvas.ViewSettings, new: com.xnotes.canvas.ViewSettings) {
-        if (prev.mode != new.mode || prev.rotation != new.rotation || prev.verticalScroll != new.verticalScroll) {
-            // Re-group / re-orient / re-flow the pages, keep the reader on the same page, and
-            // re-fit a fit-width view to the new row width (a Double spread is about twice as
-            // wide; a 90 degree turn swaps every page's footprint).
+        if (state.viewingMode != com.xnotes.canvas.ViewingMode.SINGLE || state.verticalScroll) {
+            // Keep paged-note viewing and scrolling disabled. Runtime page rotation is selected
+            // from the device orientation by CanvasView and is independent of saved view settings.
             val cur = if (state.didInitialFit) state.currentPageIndex() else 0
-            state.viewingMode = new.mode
-            state.rotationDeg = new.rotation
-            state.verticalScroll = new.verticalScroll
+            state.viewingMode = com.xnotes.canvas.ViewingMode.SINGLE
+            state.verticalScroll = false
             state.flipOffsetX = 0.0
-            if (new.verticalScroll) state.fitHeightActive = false // a paginated-only magnet
+            state.fitHeightActive = false
             state.relayout()
             if (state.didInitialFit) {
                 state.currentRow = state.rowIndexOf(cur) // paginated fits read the row
-                when {
-                    state.fitWidthActive -> state.zoom = state.fitWidthZoom()
-                    state.fitHeightActive -> state.fitHeightZoom().takeIf { it > 0.0 }?.let { state.zoom = it }
-                }
                 state.invalidateCachesForZoom()
+                state.currentRow = state.rowIndexOf(cur)
                 state.goToPage(cur)
+                state.fitCurrentPageCover()
                 refreshView()
             }
         }
@@ -4744,6 +4781,7 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         state.pendingInitialView =
             if (saved != null) InitialView.Restore(saved.zoom, saved.scrollX, saved.scrollY) else InitialView.FitWidth
         state.didInitialFit = false
+        view.syncPageRotationToScreen()
         if (state.viewportW > 0) state.establishInitialView()
     }
 
@@ -5608,11 +5646,11 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
         view.requestRender()
     }
 
-    fun zoomIn() { state.zoomByStep(true); afterView() }
-    fun zoomOut() { state.zoomByStep(false); afterView() }
-    fun fitWidth() { state.fitWidth(); afterView() }
-    fun fitHeight() { state.fitHeight(); afterView() }
-    fun fitPage() { state.fitPage(); afterView() }
+    fun zoomIn() { if (controller.navigationEnabled) { state.zoomByStep(true); afterView() } }
+    fun zoomOut() { if (controller.navigationEnabled) { state.zoomByStep(false); afterView() } }
+    fun fitWidth() { if (controller.navigationEnabled) { state.fitWidth(); afterView() } }
+    fun fitHeight() { if (controller.navigationEnabled) { state.fitHeight(); afterView() } }
+    fun fitPage() { if (controller.navigationEnabled) { state.fitPage(); afterView() } }
     fun prevPage() { state.goToPage(state.prevPageIndex(state.currentPageIndex())); afterView() }
     fun nextPage() { state.goToPage(state.nextPageIndex(state.currentPageIndex())); afterView() }
     fun goToPage(index: Int) { state.goToPage(index); afterView() }
@@ -6237,18 +6275,37 @@ class Editor(context: Context, val pane: Pane = Pane.PRIMARY) : ToolPopupHost, S
      */
     fun setToolbarCover(left: Double, top: Double, right: Double, bottom: Double) {
         val st = state
+        // The dock floats above the page; it must not reserve canvas space or change page scale.
+        if (st.fullBleedPages) {
+            if (st.insetLeft == 0.0 && st.insetTop == 0.0 && st.insetRight == 0.0 && st.insetBottom == 0.0) return
+            st.insetLeft = 0.0
+            st.insetTop = 0.0
+            st.insetRight = 0.0
+            st.insetBottom = 0.0
+            st.clampScroll()
+            refreshView()
+            view.requestRender()
+            return
+        }
         if (st.insetLeft == left && st.insetTop == top && st.insetRight == right && st.insetBottom == bottom) return
         val widthChanged = left + right != st.insetLeft + st.insetRight
-        st.scrollX -= left - st.insetLeft
-        st.scrollY -= top - st.insetTop
+        if (!st.preserveViewOnResize) {
+            st.scrollX -= left - st.insetLeft
+            st.scrollY -= top - st.insetTop
+        }
         st.insetLeft = left
         st.insetTop = top
         st.insetRight = right
         st.insetBottom = bottom
-        if (widthChanged && st.didInitialFit) st.reflowFitWidthForResize()
+        if (!st.preserveViewOnResize && widthChanged && st.didInitialFit) st.reflowFitWidthForResize()
         st.clampScroll()
         refreshView()
         view.requestRender()
+    }
+
+    /** Temporarily disable Hanvon's preview while the stylus interacts with the floating dock. */
+    fun onToolbarStylusContact(active: Boolean) {
+        hvPenInk?.onToolbarStylusContact(active)
     }
 
     /** Shut the menu for the slash it is on, leaving the typed text alone. */

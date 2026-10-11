@@ -19,6 +19,7 @@ data class Palette(
     val menuBg: Rgba,
     val isDark: Boolean,
     val materialColors: MaterialColors,
+    val isEink: Boolean = false,
 ) {
     fun accentAlpha(alpha: Int): Rgba = accent.withAlpha(alpha)
 
@@ -40,7 +41,36 @@ data class Palette(
         fun material(appearance: String, m: MaterialColors): Palette = when (appearance) {
             "light" -> materialLight(m)
             "oled" -> materialOled(m)
+            "eink" -> materialEink(m)
             else -> materialDark(m)
+        }
+
+        /** Pure white surfaces and black foregrounds; outlines carry hierarchy instead of fills. */
+        fun materialEink(m: MaterialColors): Palette {
+            val white = hex(0xFFFFFF)
+            val black = hex(0x000000)
+            val monochrome = m.copy(
+                primary = black, onPrimary = white, primaryContainer = white, onPrimaryContainer = black,
+                inversePrimary = black,
+                secondary = black, onSecondary = white, secondaryContainer = white, onSecondaryContainer = black,
+                tertiary = black, onTertiary = white, tertiaryContainer = white, onTertiaryContainer = black,
+                background = white, onBackground = black, surface = white, onSurface = black,
+                surfaceVariant = white, onSurfaceVariant = black, surfaceTint = white,
+                inverseSurface = black, inverseOnSurface = white,
+                error = black, onError = white, errorContainer = white, onErrorContainer = black,
+                outline = black, outlineVariant = black, scrim = black,
+                surfaceBright = white, surfaceDim = white,
+                surfaceContainerLowest = white, surfaceContainerLow = white, surfaceContainer = white,
+                surfaceContainerHigh = white, surfaceContainerHighest = white,
+                primaryFixed = white, primaryFixedDim = white, onPrimaryFixed = black, onPrimaryFixedVariant = black,
+                secondaryFixed = white, secondaryFixedDim = white, onSecondaryFixed = black, onSecondaryFixedVariant = black,
+                tertiaryFixed = white, tertiaryFixedDim = white, onTertiaryFixed = black, onTertiaryFixedVariant = black,
+            )
+            return Palette(
+                bg = white, panel = white, paper = white, paperBorder = black, accent = black,
+                border = black, text = black, textDim = black, surface = white, surfaceHi = white,
+                menuBg = white, isDark = false, materialColors = monochrome, isEink = true,
+            )
         }
 
         /** Light sits a few tone steps below white so panels and the backstage keep visible
